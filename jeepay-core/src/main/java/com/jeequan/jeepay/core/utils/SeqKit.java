@@ -41,12 +41,16 @@ public class SeqKit {
 	private static final AtomicLong TRANSFER_ID_SEQ = new AtomicLong(0L);
 	private static final AtomicLong DIVISION_BATCH_ID_SEQ = new AtomicLong(0L);
 	private static final AtomicLong QRCODE_CARD_ID_SEQ = new AtomicLong(0L); //码牌自增ID
+	private static final AtomicLong APPLY_ID_SEQ = new AtomicLong(0L); //进件申请ID自增
+	private static final AtomicLong MATERIAL_ID_SEQ = new AtomicLong(0L); //材料ID自增
 
 	private static final String PAY_ORDER_SEQ_PREFIX = "P";
 	private static final String REFUND_ORDER_SEQ_PREFIX = "R";
 	private static final String MHO_ORDER_SEQ_PREFIX = "M";
 	private static final String TRANSFER_ID_SEQ_PREFIX = "T";
 	private static final String DIVISION_BATCH_ID_SEQ_PREFIX = "D";
+	private static final String APPLY_ID_SEQ_PREFIX = "A";
+	private static final String MATERIAL_ID_SEQ_PREFIX = "MAT";
 
 	/** 是否使用MybatisPlus生成分布式ID **/
 	private static final boolean IS_USE_MP_ID = true;
@@ -110,6 +114,26 @@ public class SeqKit {
 				(int) QRCODE_CARD_ID_SEQ.getAndIncrement() % 100)
 		);
 
+	}
+
+	/** 生成进件申请ID **/
+	public static String genApplyId() {
+		if(IS_USE_MP_ID) {
+			return APPLY_ID_SEQ_PREFIX + IdWorker.getIdStr();
+		}
+		return String.format("%s%s%04d", APPLY_ID_SEQ_PREFIX,
+				DateUtil.format(new Date(), DatePattern.PURE_DATETIME_MS_PATTERN),
+				(int) APPLY_ID_SEQ.getAndIncrement() % 10000);
+	}
+
+	/** 生成材料ID **/
+	public static String genMaterialId() {
+		if(IS_USE_MP_ID) {
+			return MATERIAL_ID_SEQ_PREFIX + IdWorker.getIdStr();
+		}
+		return String.format("%s%s%04d", MATERIAL_ID_SEQ_PREFIX,
+				DateUtil.format(new Date(), DatePattern.PURE_DATETIME_MS_PATTERN),
+				(int) MATERIAL_ID_SEQ.getAndIncrement() % 10000);
 	}
 
 	public static void main(String[] args) throws Exception {
