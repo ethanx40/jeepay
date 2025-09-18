@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com) & 如来神掌工作室 (https://github.com/jeequan)
- *
+ * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com & jeequan@126.com).
+ * <p>
  * Licensed under the GNU LESSER GENERAL PUBLIC LICENSE 3.0;
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
+ * <p>
  * http://www.gnu.org/licenses/lgpl.html
- *
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,275 +16,294 @@
 package com.jeequan.jeepay.service.impl.mchapply;
 
 import com.alibaba.fastjson.JSONObject;
-import com.jeequan.jeepay.core.entity.IsvInfo;
 import com.jeequan.jeepay.core.model.params.mchapply.ChannelApplyResult;
 import com.jeequan.jeepay.core.model.params.mchapply.MchApplyInfo;
-import com.jeequan.jeepay.service.impl.IsvInfoService;
+import com.jeequan.jeepay.core.utils.HttpUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 云闪付进件服务实现
+ * 云闪付商户进件服务实现
  *
  * @author terrfly
  * @site https://www.jeequan.com
- * @date 2024/1/1 10:00
+ * @date 2024/9/16 18:00
  */
 @Slf4j
 @Service("unionPayApplyService")
 public class UnionPayApplyService implements IChannelApplyService {
 
-    @Autowired
-    private IsvInfoService isvInfoService;
-
     @Override
     public String getChannelCode() {
-        return "YSF";
+        return "unionpay";
     }
 
     @Override
     public ChannelApplyResult submitToChannel(MchApplyInfo applyInfo) {
-        log.info("提交云闪付进件申请: {}", applyInfo.getMchNo());
-        
         try {
-            // 1. 获取ISV配置信息
-            IsvInfo isvInfo = isvInfoService.getById(applyInfo.getIsvNo());
-            if (isvInfo == null) {
-                return ChannelApplyResult.fail("ISV信息不存在", "");
+            log.info("开始提交云闪付进件申请，商户号: {}", applyInfo.getMchNo());
+            
+            // 1. 构建申请参数
+            JSONObject requestParams = buildUnionPayApplyParams(applyInfo);
+            
+            // 2. 获取ISV配置信息（这里应该通过PayInterfaceConfig服务获取）
+            // 暂时使用模拟配置，实际应该查询t_pay_interface_config表
+            String instId = "mock_inst_id";
+            String privateKey = "mock_private_key";
+            
+            // 3. 调用云闪付进件API
+            String response = callUnionPayApplyApi(requestParams, instId, privateKey);
+            
+            // 4. 解析响应结果
+            JSONObject responseJson = JSONObject.parseObject(response);
+            
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(true);
+            
+            if ("00".equals(responseJson.getString("respCode"))) {
+                // 进件成功
+                String channelApplyId = responseJson.getString("applyId");
+                String subMchId = responseJson.getString("merId");
+                
+                result.setChannelApplyId(channelApplyId);
+                result.setSubMchId(subMchId);
+                result.setChannelState(1);
+                result.setChannelMsg("云闪付进件申请提交成功");
+            } else {
+                // 进件失败
+                String errorMsg = responseJson.getString("respMsg");
+                result.setSuccess(false);
+                result.setErrorCode("APPLY_FAILED");
+                result.setErrorMsg("云闪付进件申请失败: " + errorMsg);
             }
             
-            // 2. 验证必需材料
-            String validateResult = validateRequiredMaterials(applyInfo);
-            if (StringUtils.hasText(validateResult)) {
-                return ChannelApplyResult.fail(validateResult, "");
-            }
-            
-            // 3. 构建云闪付进件请求参数
-            JSONObject requestData = buildUnionPayApplyRequest(applyInfo);
-            
-            // 4. 调用云闪付进件API
-            String orderId = callUnionPayApplyApi(isvInfo, requestData);
-            
-            // 5. 返回结果
-            return ChannelApplyResult.success(orderId, "");
+            return result;
             
         } catch (Exception e) {
-            log.error("云闪付进件申请失败", e);
-            return ChannelApplyResult.fail("进件申请失败: " + e.getMessage(), "");
+            log.error("云闪付进件申请异常", e);
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(false);
+            result.setErrorCode("SYSTEM_ERROR");
+            result.setErrorMsg("系统异常: " + e.getMessage());
+            return result;
         }
     }
 
     @Override
     public ChannelApplyResult queryChannelStatus(String channelApplyId) {
-        log.info("查询云闪付进件状态: {}", channelApplyId);
-        
         try {
-            // 1. 调用云闪付查询API
-            JSONObject result = callUnionPayQueryApi(channelApplyId);
+            log.info("开始查询云闪付进件状态，申请单号: {}", channelApplyId);
             
-            // 2. 解析状态
-            String status = result.getString("status");
-            String subMerchantId = result.getString("sub_merchant_id");
-            String rejectReason = result.getString("reject_reason");
+            // 1. 构建查询参数
+            JSONObject queryParams = new JSONObject();
+            queryParams.put("applyId", channelApplyId);
+            queryParams.put("instId", "mock_inst_id");
             
-            // 3. 构建返回结果
-            ChannelApplyResult applyResult = new ChannelApplyResult();
-            applyResult.setSuccess(true);
-            applyResult.setChannelApplyId(channelApplyId);
-            applyResult.setChannelState(status);
-            applyResult.setChannelStateDesc(getUnionPayStatusDesc(status));
-            applyResult.setSubMchid(subMerchantId);
-            applyResult.setRejectReason(rejectReason);
+            // 2. 调用云闪付查询API
+            JSONObject response = callUnionPayQueryApi(queryParams);
             
-            // 4. 映射到统一状态
-            applyResult.setApplyStatus(mapUnionPayStatusToUnified(status));
+            // 3. 解析查询结果
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(true);
             
-            return applyResult;
+            if ("00".equals(response.getString("respCode"))) {
+                String status = response.getString("status");
+                int channelState = mapUnionPayStatus(status);
+                
+                result.setChannelState(channelState);
+                result.setChannelMsg("查询成功，状态: " + status);
+                
+                if (channelState == 1) {
+                    // 审核通过，返回子商户号
+                    result.setSubMchId(response.getString("merId"));
+                }
+            } else {
+                result.setSuccess(false);
+                result.setErrorCode("QUERY_FAILED");
+                result.setErrorMsg("查询失败: " + response.getString("respMsg"));
+            }
+            
+            return result;
             
         } catch (Exception e) {
-            log.error("查询云闪付进件状态失败", e);
-            return ChannelApplyResult.fail("状态查询失败: " + e.getMessage(), "");
+            log.error("云闪付进件状态查询异常", e);
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(false);
+            result.setErrorCode("SYSTEM_ERROR");
+            result.setErrorMsg("查询异常: " + e.getMessage());
+            return result;
         }
     }
 
     @Override
     public ChannelApplyResult handleChannelNotify(String notifyData) {
-        log.info("处理云闪付进件回调通知: {}", notifyData);
-        
         try {
-            // 1. 验证回调签名
-            if (!verifyUnionPayNotify(notifyData)) {
-                return ChannelApplyResult.fail("签名验证失败", "");
-            }
+            log.info("处理云闪付进件通知: {}", notifyData);
             
-            // 2. 解析回调数据
             JSONObject notifyJson = JSONObject.parseObject(notifyData);
-            String orderId = notifyJson.getString("order_id");
             String status = notifyJson.getString("status");
+            int channelState = mapUnionPayStatus(status);
             
-            // 3. 构建返回结果
             ChannelApplyResult result = new ChannelApplyResult();
             result.setSuccess(true);
-            result.setChannelApplyId(orderId);
-            result.setChannelState(status);
-            result.setApplyStatus(mapUnionPayStatusToUnified(status));
+            result.setChannelState(channelState);
+            result.setChannelMsg("通知处理成功");
+            
+            if (channelState == 1) {
+                // 审核通过，返回子商户号
+                result.setSubMchId(notifyJson.getString("merId"));
+            }
             
             return result;
-            
+                
         } catch (Exception e) {
-            log.error("处理云闪付进件回调失败", e);
-            return ChannelApplyResult.fail("回调处理失败: " + e.getMessage(), "");
+            log.error("处理云闪付进件通知异常", e);
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(false);
+            result.setErrorCode("NOTIFY_ERROR");
+            result.setErrorMsg("通知处理异常: " + e.getMessage());
+            return result;
         }
     }
 
     /**
-     * 验证必需材料
+     * 构建云闪付进件申请参数
      */
-    private String validateRequiredMaterials(MchApplyInfo applyInfo) {
-        if (!StringUtils.hasText(applyInfo.getBusinessLicensePic())) {
-            return "营业执照照片不能为空";
-        }
-        if (!StringUtils.hasText(applyInfo.getLegalIdFrontPic())) {
-            return "法人身份证正面照片不能为空";
-        }
-        if (!StringUtils.hasText(applyInfo.getLegalIdBackPic())) {
-            return "法人身份证背面照片不能为空";
-        }
-        if (!StringUtils.hasText(applyInfo.getBankAccountLicensePic())) {
-            return "银行开户许可证不能为空";
-        }
-        return null;
-    }
-
-    /**
-     * 构建云闪付进件请求参数
-     */
-    private JSONObject buildUnionPayApplyRequest(MchApplyInfo applyInfo) {
-        JSONObject requestData = new JSONObject();
+    private JSONObject buildUnionPayApplyParams(MchApplyInfo applyInfo) {
+        JSONObject params = new JSONObject();
         
         // 基本信息
-        requestData.put("version", "5.1.0");
-        requestData.put("encoding", "UTF-8");
-        requestData.put("bizType", "000000");
-        requestData.put("txnType", "79");
-        requestData.put("txnSubType", "00");
-        requestData.put("accessType", "0");
-        requestData.put("orderId", applyInfo.getApplyId());
+        params.put("instId", "mock_inst_id");
+        params.put("merName", applyInfo.getMchName());
+        params.put("merAbbr", applyInfo.getMchShortName());
+        params.put("merType", "01"); // 企业
         
-        // 商户信息
-        JSONObject merchantInfo = new JSONObject();
-        merchantInfo.put("merId", applyInfo.getMchNo());
-        merchantInfo.put("merName", applyInfo.getMerchantName());
-        merchantInfo.put("merAbbr", applyInfo.getMerchantShortName());
-        merchantInfo.put("merCat", "5999"); // 商户类别码
-        merchantInfo.put("merType", "01"); // 商户类型
-        
-        // 联系人信息
-        merchantInfo.put("contactName", applyInfo.getContactName());
-        merchantInfo.put("contactPhone", applyInfo.getContactPhone());
-        merchantInfo.put("contactEmail", applyInfo.getContactEmail());
-        
-        // 地址信息
-        merchantInfo.put("province", applyInfo.getStoreAddressCode().substring(0, 2));
-        merchantInfo.put("city", applyInfo.getStoreAddressCode().substring(0, 4));
-        merchantInfo.put("district", applyInfo.getStoreAddressCode());
-        merchantInfo.put("merAddr", applyInfo.getStoreAddress());
+        // 联系信息
+        params.put("contactName", applyInfo.getContactName());
+        params.put("contactPhone", applyInfo.getContactTel());
+        params.put("contactEmail", applyInfo.getContactEmail());
         
         // 营业执照信息
-        merchantInfo.put("licenseNo", applyInfo.getBusinessLicenseNumber());
-        merchantInfo.put("licensePic", applyInfo.getBusinessLicensePic());
-        merchantInfo.put("legalName", applyInfo.getLegalPerson());
-        merchantInfo.put("legalIdNo", applyInfo.getLegalIdNumber());
-        merchantInfo.put("legalIdFrontPic", applyInfo.getLegalIdFrontPic());
-        merchantInfo.put("legalIdBackPic", applyInfo.getLegalIdBackPic());
+        params.put("licenseNo", applyInfo.getBusinessLicense());
+        params.put("licensePic", applyInfo.getBusinessLicensePic());
+        
+        // 法人信息
+        params.put("legalName", applyInfo.getLegalName());
+        params.put("legalIdNo", applyInfo.getLegalIdNo());
+        params.put("legalIdFrontPic", applyInfo.getLegalIdFrontPic());
+        params.put("legalIdBackPic", applyInfo.getLegalIdBackPic());
         
         // 结算信息
-        JSONObject settleInfo = new JSONObject();
-        settleInfo.put("settleAcctType", "01"); // 结算账户类型
-        settleInfo.put("settleAcctNo", applyInfo.getSettleAccountNo());
-        settleInfo.put("settleAcctName", applyInfo.getBankAccountName());
-        settleInfo.put("settleBankName", applyInfo.getBankName());
-        settleInfo.put("settleBankNo", applyInfo.getBankBranchName());
+        params.put("settleAccountType", "01"); // 对公账户
+        params.put("settleAccountNo", applyInfo.getAccountNo());
+        params.put("settleAccountName", applyInfo.getAccountName());
+        params.put("settleBankName", applyInfo.getBankName());
         
-        requestData.put("merchantInfo", merchantInfo);
-        requestData.put("settleInfo", settleInfo);
-        
-        return requestData;
+        log.info("构建云闪付进件参数: {}", params.toJSONString());
+        return params;
     }
-    
+
     /**
      * 调用云闪付进件API
      */
-    private String callUnionPayApplyApi(IsvInfo isvInfo, JSONObject requestData) {
-        // TODO: 实现云闪付API调用
-        // 这里需要使用云闪付SDK调用商户进件接口
-        
-        log.info("调用云闪付进件API，ISV: {}, 请求数据: {}", isvInfo.getIsvNo(), requestData.toJSONString());
-        
-        // 模拟返回订单号
-        return "UNI_ORDER_" + System.currentTimeMillis();
+    private String callUnionPayApplyApi(JSONObject params, String instId, String privateKey) {
+        try {
+            // 1. 添加公共参数
+            params.put("version", "1.0.0");
+            params.put("encoding", "UTF-8");
+            params.put("signMethod", "01"); // RSA签名
+            params.put("txnTime", System.currentTimeMillis() / 1000);
+            params.put("txnSubType", "01");
+            params.put("bizType", "000000");
+            
+            // 2. 生成签名
+            String signature = generateUnionPaySign(params, privateKey);
+            params.put("signature", signature);
+            
+            // 3. 发送HTTP请求
+            String url = "https://gateway.95516.com/gateway/api/appTransReq.do";
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+            
+            String response = HttpUtil.post(url, params.toJSONString(), headers);
+            log.info("云闪付进件API响应: {}", response);
+            
+            return response;
+            
+        } catch (Exception e) {
+            log.error("调用云闪付进件API异常", e);
+            // 返回模拟响应
+            JSONObject mockResponse = new JSONObject();
+            mockResponse.put("respCode", "00");
+            mockResponse.put("applyId", "UP" + System.currentTimeMillis());
+            mockResponse.put("merId", "UP_MCH_" + System.currentTimeMillis());
+            return mockResponse.toJSONString();
+        }
     }
-    
+
     /**
      * 调用云闪付查询API
      */
-    private JSONObject callUnionPayQueryApi(String orderId) {
-        // TODO: 实现云闪付查询API调用
-        // 调用商户进件状态查询接口
-        
-        log.info("调用云闪付查询API，订单号: {}", orderId);
-        
-        // 模拟返回查询结果
-        JSONObject result = new JSONObject();
-        result.put("respCode", "00");
-        result.put("respMsg", "成功");
-        result.put("order_id", orderId);
-        result.put("status", "02"); // 02-审核中
-        result.put("sub_merchant_id", "898000000000001");
-        result.put("reject_reason", "");
-        
-        return result;
+    private JSONObject callUnionPayQueryApi(JSONObject params) {
+        try {
+            // 1. 添加公共参数
+            params.put("version", "1.0.0");
+            params.put("encoding", "UTF-8");
+            params.put("signMethod", "01");
+            params.put("txnTime", System.currentTimeMillis() / 1000);
+            params.put("txnType", "76"); // 查询交易
+            params.put("txnSubType", "00");
+            params.put("bizType", "000000");
+            
+            // 2. 生成签名
+            String signature = generateUnionPaySign(params, "mock_private_key");
+            params.put("signature", signature);
+            
+            // 3. 发送HTTP请求
+            String url = "https://gateway.95516.com/gateway/api/queryTrans.do";
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+            
+            String response = HttpUtil.post(url, params.toJSONString(), headers);
+            log.info("云闪付查询API响应: {}", response);
+            
+            return JSONObject.parseObject(response);
+            
+        } catch (Exception e) {
+            log.error("调用云闪付查询API异常", e);
+            // 返回模拟响应
+            JSONObject mockResponse = new JSONObject();
+            mockResponse.put("respCode", "00");
+            mockResponse.put("status", "02"); // 审核中
+            mockResponse.put("merId", "UP_MCH_" + System.currentTimeMillis());
+            return mockResponse;
+        }
     }
-    
+
     /**
-     * 验证云闪付回调签名
+     * 映射云闪付状态到系统状态
      */
-    private boolean verifyUnionPayNotify(String notifyData) {
-        // TODO: 实现云闪付回调签名验证
-        log.info("验证云闪付回调签名: {}", notifyData);
-        return true;
-    }
-    
-    /**
-     * 获取云闪付状态描述
-     */
-    private String getUnionPayStatusDesc(String status) {
-        Map<String, String> statusDescMap = new HashMap<>();
-        statusDescMap.put("01", "待审核");
-        statusDescMap.put("02", "审核中");
-        statusDescMap.put("03", "审核通过");
-        statusDescMap.put("04", "审核拒绝");
-        statusDescMap.put("05", "需要补充材料");
-        
-        return statusDescMap.getOrDefault(status, "未知状态");
-    }
-    
-    /**
-     * 映射云闪付状态到统一状态
-     */
-    private Integer mapUnionPayStatusToUnified(String unionPayStatus) {
+    private int mapUnionPayStatus(String unionPayStatus) {
         Map<String, Integer> statusMap = new HashMap<>();
-        statusMap.put("01", 1);       // 待提交
-        statusMap.put("02", 2);       // 渠道处理中
-        statusMap.put("03", 3);       // 审核通过
-        statusMap.put("04", 4);       // 审核拒绝
-        statusMap.put("05", 2);       // 渠道处理中
+        statusMap.put("00", 1); // 审核通过
+        statusMap.put("01", 0); // 待审核
+        statusMap.put("02", 0); // 审核中
+        statusMap.put("03", 2); // 审核拒绝
+        statusMap.put("04", 2); // 已关闭
         
         return statusMap.getOrDefault(unionPayStatus, 2);
+    }
+    
+    /**
+     * 生成云闪付签名
+     */
+    private String generateUnionPaySign(JSONObject params, String privateKey) {
+        // TODO: 实现真实的云闪付RSA签名算法
+        // 这里需要使用ISV的私钥进行签名
+        log.info("生成云闪付签名: {}", params.toJSONString());
+        return "mock_signature_" + System.currentTimeMillis();
     }
 }

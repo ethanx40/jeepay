@@ -222,6 +222,39 @@ public class MchApplyInfo implements Serializable {
                 .orElse(null);
     }
 
+    // 添加兼容性getter方法
+    public String getMchName() {
+        return getMerchantName();
+    }
+
+    public String getMchShortName() {
+        return getMerchantShortName();
+    }
+
+    public String getContactTel() {
+        return getContactPhone();
+    }
+
+    public String getBusinessLicense() {
+        return getBusinessLicenseNumber();
+    }
+
+    public String getLegalName() {
+        return getLegalPerson();
+    }
+
+    public String getLegalIdNo() {
+        return getLegalIdNumber();
+    }
+
+    public String getAccountNo() {
+        return getBankAccountNumber();
+    }
+
+    public String getAccountName() {
+        return getBankAccountName();
+    }
+
     /**
      * 商户基本信息
      */

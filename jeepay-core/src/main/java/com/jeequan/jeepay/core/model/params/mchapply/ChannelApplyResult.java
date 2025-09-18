@@ -143,10 +143,6 @@ public class ChannelApplyResult implements Serializable {
         return subMchId;
     }
 
-    public void setSubMchId(String subMchId) {
-        this.subMchId = subMchId;
-    }
-
     /**
      * 创建成功结果
      */
@@ -189,5 +185,60 @@ public class ChannelApplyResult implements Serializable {
         return result;
     }
 
+    /**
+     * 设置渠道状态（支持int类型）
+     */
+    public ChannelApplyResult setChannelState(int channelState) {
+        this.channelState = String.valueOf(channelState);
+        return this;
+    }
 
+    /**
+     * 设置渠道消息
+     */
+    public ChannelApplyResult setChannelMsg(String channelMsg) {
+        this.channelStateDesc = channelMsg;
+        return this;
+    }
+
+    /**
+     * 设置子商户号（链式调用）
+     */
+    public ChannelApplyResult setSubMchId(String subMchId) {
+        this.subMchId = subMchId;
+        this.subMchid = subMchId; // 同时设置兼容字段
+        return this;
+    }
+
+    /**
+     * 设置渠道申请ID（链式调用）
+     */
+    public ChannelApplyResult setChannelApplyId(String channelApplyId) {
+        this.channelApplyId = channelApplyId;
+        return this;
+    }
+
+    /**
+     * 设置成功状态（链式调用）
+     */
+    public ChannelApplyResult setSuccess(boolean success) {
+        this.success = success;
+        return this;
+    }
+
+    /**
+     * 设置错误码（链式调用）
+     */
+    public ChannelApplyResult setErrorCode(String errorCode) {
+        this.errorCode = errorCode;
+        return this;
+    }
+
+    /**
+     * 设置错误消息（链式调用）
+     */
+    public ChannelApplyResult setErrorMsg(String errorMsg) {
+        this.errorMsg = errorMsg;
+        return this;
+    }
 }

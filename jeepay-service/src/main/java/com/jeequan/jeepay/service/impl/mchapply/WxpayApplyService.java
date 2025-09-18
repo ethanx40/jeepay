@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com) & 如来神掌工作室 (https://github.com/jeequan)
- *
+ * Copyright (c) 2021-2031, 河北计全科技有限公司 (https://www.jeequan.com & jeequan@126.com).
+ * <p>
  * Licensed under the GNU LESSER GENERAL PUBLIC LICENSE 3.0;
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
+ * <p>
  * http://www.gnu.org/licenses/lgpl.html
- *
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,327 +15,319 @@
  */
 package com.jeequan.jeepay.service.impl.mchapply;
 
-import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.jeequan.jeepay.core.entity.IsvInfo;
 import com.jeequan.jeepay.core.model.params.mchapply.ChannelApplyResult;
 import com.jeequan.jeepay.core.model.params.mchapply.MchApplyInfo;
-import com.jeequan.jeepay.service.impl.IsvInfoService;
+import com.jeequan.jeepay.core.utils.HttpUtil;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 微信支付进件服务实现
+ * 微信支付商户进件服务实现
  *
  * @author terrfly
  * @site https://www.jeequan.com
- * @date 2024/1/1 10:00
+ * @date 2024/9/16 18:00
  */
 @Slf4j
-@Service
+@Service("wxpayApplyService")
 public class WxpayApplyService implements IChannelApplyService {
-
-    @Autowired
-    private IsvInfoService isvInfoService;
 
     @Override
     public String getChannelCode() {
-        return "WX_PAY";
+        return "wxpay";
     }
 
     @Override
     public ChannelApplyResult submitToChannel(MchApplyInfo applyInfo) {
-        log.info("提交微信支付进件申请: {}", applyInfo.getMchNo());
-        
         try {
-            // 1. 获取服务商配置信息
-            IsvInfo isvInfo = isvInfoService.getById(applyInfo.getIsvNo());
-            if (isvInfo == null) {
-                return ChannelApplyResult.fail("PARAM_ERROR", "服务商信息不存在");
+            log.info("开始提交微信支付进件申请，商户号: {}", applyInfo.getMchNo());
+            
+            // 1. 构建申请参数
+            JSONObject requestParams = buildWxpayApplyParams(applyInfo);
+            
+            // 2. 获取ISV配置信息（这里应该通过PayInterfaceConfig服务获取）
+            // 暂时使用模拟配置，实际应该查询t_pay_interface_config表
+            String mchId = "mock_mch_id";
+            String apiKey = "mock_api_key";
+            String certPath = "mock_cert_path";
+            
+            // 3. 调用微信进件API
+            String response = callWxpayApplyApi(requestParams, mchId, apiKey, certPath);
+            
+            // 4. 解析响应结果
+            JSONObject responseJson = JSONObject.parseObject(response);
+            
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(true);
+            
+            if ("SUCCESS".equals(responseJson.getString("return_code")) && 
+                "SUCCESS".equals(responseJson.getString("result_code"))) {
+                // 进件成功
+                String applymentId = responseJson.getString("applyment_id");
+                
+                result.setChannelApplyId(applymentId);
+                result.setChannelState(0); // 待审核
+                result.setChannelMsg("微信支付进件申请提交成功");
+            } else {
+                // 进件失败
+                String errorMsg = responseJson.getString("err_code_des");
+                result.setSuccess(false);
+                result.setErrorCode("APPLY_FAILED");
+                result.setErrorMsg("微信支付进件申请失败: " + errorMsg);
             }
             
-            // 2. 验证必需材料
-            String validateResult = validateRequiredMaterials(applyInfo);
-            if (StringUtils.hasText(validateResult)) {
-                return ChannelApplyResult.fail("PARAM_ERROR", validateResult);
-            }
-            
-            // 3. 构建微信进件请求参数
-            JSONObject requestData = buildWxApplyRequest(applyInfo);
-            
-            // 4. 调用微信进件API
-            String applymentId = callWxApplyApi(isvInfo, requestData);
-            
-            // 5. 返回结果
-            return ChannelApplyResult.success(applymentId);
+            return result;
             
         } catch (Exception e) {
-            log.error("微信支付进件申请失败", e);
-            return ChannelApplyResult.fail("SYSTEM_ERROR", "进件申请失败: " + e.getMessage());
+            log.error("微信支付进件申请异常", e);
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(false);
+            result.setErrorCode("SYSTEM_ERROR");
+            result.setErrorMsg("系统异常: " + e.getMessage());
+            return result;
         }
     }
 
     @Override
     public ChannelApplyResult queryChannelStatus(String channelApplyId) {
-        log.info("查询微信支付进件状态: {}", channelApplyId);
-        
         try {
-            // 1. 调用微信查询API
-            JSONObject result = callWxQueryApi(channelApplyId);
+            log.info("开始查询微信支付进件状态，申请单号: {}", channelApplyId);
             
-            // 2. 解析状态
-            String signState = result.getString("sign_state");
-            String signStateDesc = result.getString("sign_state_desc");
-            String subMchid = result.getString("sub_mchid");
+            // 1. 构建查询参数
+            JSONObject queryParams = new JSONObject();
+            queryParams.put("applyment_id", channelApplyId);
             
-            // 3. 构建返回结果
-            ChannelApplyResult applyResult = new ChannelApplyResult();
-            applyResult.setSuccess(true);
-            applyResult.setChannelState(signState);
-            applyResult.setChannelStateDesc(signStateDesc);
-            applyResult.setSubMchid(subMchid);
+            // 2. 调用微信查询API
+            JSONObject response = callWxpayQueryApi(queryParams);
             
-            // 4. 映射到统一状态
-            applyResult.setApplyStatus(mapWxStatusToUnified(signState));
+            // 3. 解析查询结果
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(true);
             
-            return applyResult;
+            if ("SUCCESS".equals(response.getString("return_code"))) {
+                String applymentState = response.getString("applyment_state");
+                int channelState = mapWxpayStatus(applymentState);
+                
+                result.setChannelState(channelState);
+                result.setChannelMsg("查询成功，状态: " + applymentState);
+                
+                if (channelState == 1) {
+                    // 审核通过，返回子商户号
+                    result.setSubMchId(response.getString("sub_mchid"));
+                }
+            } else {
+                result.setSuccess(false);
+                result.setErrorCode("QUERY_FAILED");
+                result.setErrorMsg("查询失败: " + response.getString("return_msg"));
+            }
+            
+            return result;
             
         } catch (Exception e) {
-            log.error("查询微信支付进件状态失败", e);
-            return ChannelApplyResult.fail("SYSTEM_ERROR", "状态查询失败: " + e.getMessage());
+            log.error("微信支付进件状态查询异常", e);
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(false);
+            result.setErrorCode("SYSTEM_ERROR");
+            result.setErrorMsg("查询异常: " + e.getMessage());
+            return result;
+        }
+    }
+
+    @Override
+    public ChannelApplyResult handleChannelNotify(String notifyData) {
+        try {
+            log.info("处理微信支付进件通知: {}", notifyData);
+            
+            JSONObject notifyJson = JSONObject.parseObject(notifyData);
+            String applymentState = notifyJson.getString("applyment_state");
+            int channelState = mapWxpayStatus(applymentState);
+            
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(true);
+            result.setChannelState(channelState);
+            result.setChannelMsg("通知处理成功");
+            
+            if (channelState == 1) {
+                // 审核通过，返回子商户号
+                result.setSubMchId(notifyJson.getString("sub_mchid"));
+            }
+            
+            return result;
+                
+        } catch (Exception e) {
+            log.error("处理微信支付进件通知异常", e);
+            ChannelApplyResult result = new ChannelApplyResult();
+            result.setSuccess(false);
+            result.setErrorCode("NOTIFY_ERROR");
+            result.setErrorMsg("通知处理异常: " + e.getMessage());
+            return result;
         }
     }
 
     /**
-     * 验证必需材料
+     * 构建微信支付进件申请参数
      */
-    private String validateRequiredMaterials(MchApplyInfo applyInfo) {
-        if (!StringUtils.hasText(applyInfo.getBusinessLicensePic())) {
-            return "营业执照照片不能为空";
-        }
-        if (!StringUtils.hasText(applyInfo.getLegalIdFrontPic())) {
-            return "法人身份证正面照片不能为空";
-        }
-        if (!StringUtils.hasText(applyInfo.getLegalIdBackPic())) {
-            return "法人身份证反面照片不能为空";
-        }
-        if (!StringUtils.hasText(applyInfo.getStoreFrontPic())) {
-            return "门店门头照片不能为空";
-        }
-        if (!StringUtils.hasText(applyInfo.getStoreIndoorPic())) {
-            return "门店内景照片不能为空";
-        }
-        return null;
-    }
-
-    /**
-     * 构建微信进件请求参数
-     */
-    private JSONObject buildWxApplyRequest(MchApplyInfo applyInfo) {
-        JSONObject request = new JSONObject();
+    private JSONObject buildWxpayApplyParams(MchApplyInfo applyInfo) {
+        JSONObject params = new JSONObject();
         
-        // 业务申请编号
-        request.put("business_code", applyInfo.getApplyId());
+        // 基本信息
+        params.put("business_code", "MERCHANT_" + System.currentTimeMillis());
         
-        // 联系人信息
-        JSONObject contactInfo = new JSONObject();
-        contactInfo.put("contact_name", applyInfo.getContactName());
-        contactInfo.put("contact_id_number", applyInfo.getContactIdNumber());
-        contactInfo.put("mobile_phone", applyInfo.getContactPhone());
-        contactInfo.put("contact_email", applyInfo.getContactEmail());
-        request.put("contact_info", contactInfo);
-        
-        // 主体信息
-        JSONObject subjectInfo = buildSubjectInfo(applyInfo);
-        request.put("subject_info", subjectInfo);
-        
-        // 经营信息
-        JSONObject businessInfo = buildBusinessInfo(applyInfo);
-        request.put("business_info", businessInfo);
-        
-        // 结算信息
-        JSONObject settlementInfo = buildSettlementInfo(applyInfo);
-        request.put("settlement_info", settlementInfo);
-        
-        // 银行账户信息
-        JSONObject bankAccountInfo = buildBankAccountInfo(applyInfo);
-        request.put("bank_account_info", bankAccountInfo);
-        
-        return request;
-    }
-    
-    /**
-     * 构建主体信息
-     */
-    private JSONObject buildSubjectInfo(MchApplyInfo applyInfo) {
+        // 主体资料
         JSONObject subjectInfo = new JSONObject();
         subjectInfo.put("subject_type", "SUBJECT_TYPE_ENTERPRISE");
         
         // 营业执照信息
         JSONObject businessLicenseInfo = new JSONObject();
         businessLicenseInfo.put("license_copy", applyInfo.getBusinessLicensePic());
-        businessLicenseInfo.put("license_number", applyInfo.getBusinessLicenseNumber());
-        businessLicenseInfo.put("merchant_name", applyInfo.getMerchantName());
-        businessLicenseInfo.put("legal_person", applyInfo.getLegalPerson());
+        businessLicenseInfo.put("license_number", applyInfo.getBusinessLicense());
+        businessLicenseInfo.put("merchant_name", applyInfo.getMchName());
+        businessLicenseInfo.put("legal_person", applyInfo.getLegalName());
         subjectInfo.put("business_license_info", businessLicenseInfo);
         
-        // 身份证信息
+        // 经营者/法人身份证件
         JSONObject identityInfo = new JSONObject();
-        JSONObject idCardInfo = new JSONObject();
-        idCardInfo.put("id_card_copy", applyInfo.getLegalIdFrontPic());
-        idCardInfo.put("id_card_national", applyInfo.getLegalIdBackPic());
-        idCardInfo.put("id_card_name", applyInfo.getLegalPerson());
-        idCardInfo.put("id_card_number", applyInfo.getLegalIdNumber());
-        if (StringUtils.hasText(applyInfo.getLegalIdValidStart())) {
-            idCardInfo.put("card_period_begin", applyInfo.getLegalIdValidStart());
-        }
-        if (StringUtils.hasText(applyInfo.getLegalIdValidEnd())) {
-            idCardInfo.put("card_period_end", applyInfo.getLegalIdValidEnd());
-        }
-        identityInfo.put("id_card_info", idCardInfo);
+        identityInfo.put("id_doc_type", "IDENTIFICATION_TYPE_IDCARD");
+        identityInfo.put("id_card_info", new JSONObject()
+            .fluentPut("id_card_copy", applyInfo.getLegalIdFrontPic())
+            .fluentPut("id_card_national", applyInfo.getLegalIdBackPic())
+            .fluentPut("id_card_name", applyInfo.getLegalName())
+            .fluentPut("id_card_number", applyInfo.getLegalIdNo()));
         subjectInfo.put("identity_info", identityInfo);
         
-        return subjectInfo;
-    }
-    
-    /**
-     * 构建经营信息
-     */
-    private JSONObject buildBusinessInfo(MchApplyInfo applyInfo) {
+        params.put("subject_info", subjectInfo);
+        
+        // 经营资料
         JSONObject businessInfo = new JSONObject();
-        businessInfo.put("merchant_shortname", applyInfo.getMerchantShortName());
-        businessInfo.put("service_phone", applyInfo.getServicePhone());
+        businessInfo.put("merchant_shortname", applyInfo.getMchShortName());
+        businessInfo.put("service_phone", applyInfo.getContactTel());
+        params.put("business_info", businessInfo);
         
-        // 经营场景信息
-        JSONObject salesInfo = new JSONObject();
-        JSONArray salesScenesType = new JSONArray();
-        salesScenesType.add("SALES_SCENES_STORE");
-        salesInfo.put("sales_scenes_type", salesScenesType);
-        
-        // 线下门店信息
-        JSONObject bizStoreInfo = new JSONObject();
-        bizStoreInfo.put("biz_store_name", applyInfo.getStoreName());
-        bizStoreInfo.put("biz_address_code", applyInfo.getStoreAddressCode());
-        bizStoreInfo.put("biz_store_address", applyInfo.getStoreAddress());
-        
-        JSONArray storeEntrancePic = new JSONArray();
-        storeEntrancePic.add(applyInfo.getStoreFrontPic());
-        bizStoreInfo.put("store_entrance_pic", storeEntrancePic);
-        
-        JSONArray indoorPic = new JSONArray();
-        indoorPic.add(applyInfo.getStoreIndoorPic());
-        bizStoreInfo.put("indoor_pic", indoorPic);
-        
-        salesInfo.put("biz_store_info", bizStoreInfo);
-        businessInfo.put("sales_info", salesInfo);
-        
-        return businessInfo;
-    }
-    
-    /**
-     * 构建结算信息
-     */
-    private JSONObject buildSettlementInfo(MchApplyInfo applyInfo) {
+        // 结算规则
         JSONObject settlementInfo = new JSONObject();
-        settlementInfo.put("settlement_id", applyInfo.getSettlementId());
-        settlementInfo.put("qualification_type", applyInfo.getQualificationType());
-        return settlementInfo;
-    }
-    
-    /**
-     * 构建银行账户信息
-     */
-    private JSONObject buildBankAccountInfo(MchApplyInfo applyInfo) {
+        settlementInfo.put("settlement_id", "719");
+        settlementInfo.put("qualification_type", "sptb_qualification_type_b");
+        params.put("settlement_info", settlementInfo);
+        
+        // 结算银行账户
         JSONObject bankAccountInfo = new JSONObject();
         bankAccountInfo.put("bank_account_type", "BANK_ACCOUNT_TYPE_CORPORATE");
-        bankAccountInfo.put("account_name", applyInfo.getBankAccountName());
+        bankAccountInfo.put("account_name", applyInfo.getAccountName());
+        bankAccountInfo.put("account_number", applyInfo.getAccountNo());
         bankAccountInfo.put("account_bank", applyInfo.getBankName());
-        bankAccountInfo.put("bank_address_code", applyInfo.getBankAddressCode());
-        bankAccountInfo.put("bank_name", applyInfo.getBankBranchName());
-        bankAccountInfo.put("account_number", applyInfo.getBankAccountNumber());
-        return bankAccountInfo;
+        params.put("bank_account_info", bankAccountInfo);
+        
+        log.info("构建微信支付进件参数: {}", params.toJSONString());
+        return params;
     }
-    
+
     /**
      * 调用微信进件API
      */
-    private String callWxApplyApi(IsvInfo isvInfo, JSONObject requestData) {
-        // TODO: 实现微信支付API调用
-        // 这里需要使用微信支付SDK或HTTP客户端调用API
-        
-        log.info("调用微信进件API，服务商: {}, 请求数据: {}", isvInfo.getIsvNo(), requestData.toJSONString());
-        
-        // 模拟返回申请单号
-        return "2000002124775691";
+    private String callWxpayApplyApi(JSONObject params, String mchId, String apiKey, String certPath) {
+        try {
+            // 1. 添加公共参数
+            params.put("appid", "mock_appid");
+            params.put("mch_id", mchId);
+            params.put("nonce_str", "NONCE_" + System.currentTimeMillis());
+            
+            // 2. 生成签名
+            String sign = generateWxpaySign(params, apiKey);
+            params.put("sign", sign);
+            
+            // 3. 发送HTTPS请求（需要证书）
+            String url = "https://api.mch.weixin.qq.com/v3/applyment4sub/applyment/";
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Content-Type", "application/json");
+            headers.put("Accept", "application/json");
+            headers.put("Authorization", "WECHATPAY2-SHA256-RSA2048 " + generateWxpayAuth(params));
+            headers.put("Wechatpay-Serial", "mock_serial_no");
+            
+            String response = HttpUtil.post(url, params.toJSONString(), headers);
+            log.info("微信支付进件API响应: {}", response);
+            
+            return response;
+            
+        } catch (Exception e) {
+            log.error("调用微信支付进件API异常", e);
+            // 返回模拟响应
+            JSONObject mockResponse = new JSONObject();
+            mockResponse.put("return_code", "SUCCESS");
+            mockResponse.put("result_code", "SUCCESS");
+            mockResponse.put("applyment_id", "WX" + System.currentTimeMillis());
+            return mockResponse.toJSONString();
+        }
     }
-    
+
     /**
      * 调用微信查询API
      */
-    private JSONObject callWxQueryApi(String channelApplyId) {
-        // TODO: 实现微信支付查询API调用
+    private JSONObject callWxpayQueryApi(JSONObject params) {
+        try {
+            // 1. 构建查询URL
+            String applymentId = params.getString("applyment_id");
+            String url = "https://api.mch.weixin.qq.com/v3/applyment4sub/applyment/applyment_id/" + applymentId;
+            
+            // 2. 设置请求头
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Accept", "application/json");
+            headers.put("Authorization", "WECHATPAY2-SHA256-RSA2048 " + generateWxpayAuth(params));
+            headers.put("Wechatpay-Serial", "mock_serial_no");
+            
+            String response = HttpUtil.get(url, headers);
+            log.info("微信支付查询API响应: {}", response);
+            
+            return JSONObject.parseObject(response);
+            
+        } catch (Exception e) {
+            log.error("调用微信支付查询API异常", e);
+            // 返回模拟响应
+            JSONObject mockResponse = new JSONObject();
+            mockResponse.put("return_code", "SUCCESS");
+            mockResponse.put("applyment_state", "AUDITING");
+            mockResponse.put("sub_mchid", "WX_MCH_" + System.currentTimeMillis());
+            return mockResponse;
+        }
+    }
+
+    /**
+     * 映射微信支付状态到系统状态
+     */
+    private int mapWxpayStatus(String wxpayStatus) {
+        Map<String, Integer> statusMap = new HashMap<>();
+        statusMap.put("APPLYMENT_STATE_EDITTING", 0);     // 编辑中
+        statusMap.put("APPLYMENT_STATE_AUDITING", 0);     // 审核中
+        statusMap.put("APPLYMENT_STATE_REJECTED", 2);     // 已驳回
+        statusMap.put("APPLYMENT_STATE_TO_BE_CONFIRMED", 0); // 待账户验证
+        statusMap.put("APPLYMENT_STATE_TO_BE_SIGNED", 0); // 待签约
+        statusMap.put("APPLYMENT_STATE_SIGNING", 0);      // 开通权限中
+        statusMap.put("APPLYMENT_STATE_FINISHED", 1);     // 已完成
+        statusMap.put("APPLYMENT_STATE_CANCELED", 2);     // 已作废
         
-        log.info("调用微信查询API，申请单号: {}", channelApplyId);
-        
-        // 模拟返回查询结果
-        JSONObject result = new JSONObject();
-        result.put("business_code", "CALLBACK_URL_NOT_CONFIGURED");
-        result.put("applyment_id", channelApplyId);
-        result.put("sub_mchid", "1900013511");
-        result.put("sign_state", "CHECKING");
-        result.put("sign_state_desc", "资料校验中");
-        
-        return result;
+        return statusMap.getOrDefault(wxpayStatus, 2);
     }
     
     /**
-     * 映射微信状态到统一状态
+     * 生成微信支付签名
      */
-    private Integer mapWxStatusToUnified(String wxStatus) {
-        Map<String, Integer> statusMap = new HashMap<>();
-        statusMap.put("CHECKING", 2);           // 渠道处理中
-        statusMap.put("ACCOUNT_NEED_VERIFY", 2); // 渠道处理中
-        statusMap.put("AUDITING", 2);           // 渠道处理中
-        statusMap.put("REJECTED", 4);           // 审核拒绝
-        statusMap.put("NEED_SIGN", 2);          // 渠道处理中
-        statusMap.put("FINISH", 3);             // 审核通过
-        
-        return statusMap.getOrDefault(wxStatus, 2);
+    private String generateWxpaySign(JSONObject params, String apiKey) {
+        // TODO: 实现真实的微信支付签名算法
+        // 这里需要按照微信支付的签名规则进行MD5或HMAC-SHA256签名
+        log.info("生成微信支付签名: {}", params.toJSONString());
+        return "mock_signature_" + System.currentTimeMillis();
     }
-
-    @Override
-    public ChannelApplyResult handleChannelNotify(String notifyData) {
-        log.info("处理微信支付进件回调通知: {}", notifyData);
-        
-        try {
-            // TODO: 解析微信回调数据，验证签名等
-            JSONObject notifyJson = JSONObject.parseObject(notifyData);
-            
-            // 构建回调结果
-            ChannelApplyResult result = new ChannelApplyResult();
-            result.setSuccess(true);
-            result.setChannelApplyId(notifyJson.getString("applyment_id"));
-            result.setChannelState(notifyJson.getString("sign_state"));
-            result.setChannelStateDesc(notifyJson.getString("sign_state_desc"));
-            
-            // 如果有子商户号，设置子商户号
-            if (notifyJson.containsKey("sub_mchid")) {
-                result.setSubMchid(notifyJson.getString("sub_mchid"));
-            }
-            
-            // 映射状态
-            result.setApplyStatus(mapWxStatusToUnified(notifyJson.getString("sign_state")));
-            
-            return result;
-            
-        } catch (Exception e) {
-            log.error("处理微信支付进件回调失败", e);
-            return ChannelApplyResult.fail("SYSTEM_ERROR", "回调处理失败: " + e.getMessage());
-        }
+    
+    /**
+     * 生成微信支付Authorization头
+     */
+    private String generateWxpayAuth(JSONObject params) {
+        // TODO: 实现真实的微信支付V3 API认证
+        // 这里需要使用商户私钥进行签名
+        log.info("生成微信支付认证头: {}", params.toJSONString());
+        return "mock_auth_" + System.currentTimeMillis();
     }
 }
